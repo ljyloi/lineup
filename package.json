@@ -3,19 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --turbopack -p 4000",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
+    "@nextui-org/react": "^2.6.11",
+    "@nextui-org/theme": "^2.4.5",
+    "antd": "^5.26.0-alpha.0",
+    "next": "15.4.0-canary.51",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.4.0-canary.51"
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4.1.8",
+    "autoprefixer": "^10.4.21",
     "eslint": "^9",
     "eslint-config-next": "15.4.0-canary.51",
-    "@eslint/eslintrc": "^3"
+    "postcss": "^8.5.4",
+    "tailwindcss": "^4.1.8"
   }
 }
