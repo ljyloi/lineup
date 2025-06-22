@@ -4,12 +4,13 @@ import styles from "./page.module.css";
 import useSelectorStore from "@/lib/store";
 import { Button, Input, Select } from 'antd';
 import {
+  CheckSquareOutlined,
   DeleteOutlined
 } from '@ant-design/icons';
 
 import { useState , useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { Passero_One } from "next/font/google";
+import {  useRouter } from "next/navigation";
+import { createClient } from "@/lib/client";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL
 
@@ -18,7 +19,6 @@ const PAGE_SHOW = "show"
 const PAGE_ADD_0 = "add0"
 const PAGE_ADD_1 = "add1"
 const PAGE_ADD_2 = "add2"
-const PAGE_UPLOAD = "upload"
 const RADIUS=15
 
 function drawPoints(canvas, startPoints, endPoints, pointToCanvas) {
@@ -97,8 +97,26 @@ const openInNewTab = (url) => {
   window.open(url, '_blank', 'noopener,noreferrer');
 };
 
+const supabase = createClient();
+
 export default function Home() {
+  // 用户
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user)
+    })
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => listener?.subscription.unsubscribe()
+  }, [])
+
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
 
   const [windowSize, setWindowSize] = useState({
     width: 0,
@@ -107,6 +125,7 @@ export default function Home() {
 
   useEffect(() => {
     const handleResize =  ()=>{
+      console.log("size changed")
       setWindowSize(
         {
           width: window.width,
@@ -146,7 +165,7 @@ export default function Home() {
   const chosenMapItem = maps.find((elem) => {
     return elem.name === chosenMap
   })
-  const chosenMapUrl = chosenMapItem ? `data:image/png;base64,${chosenMapItem.image}`: null;
+  const chosenMapUrl = chosenMapItem ? `${chosenMapItem.url}`: null;
 
   let skills = []
   if (chosenHeroItem) {
@@ -161,13 +180,8 @@ export default function Home() {
   useEffect(()=> {
     async function fetchMaps() {
       try {
-        const res = await fetch(`${API_BASE_URL}/maps`)
-        if (res.status !== 200) {
-          throw(new Error(`获取 maps 失败 ${res.status}`))
-
-        }
-        const data = await res.json()
-        setMaps(data.data)
+        const {data: maps} = await supabase.from('map').select("*")
+        setMaps(maps)
       } catch(err) {
         console.log(err)
       }
@@ -175,14 +189,8 @@ export default function Home() {
 
     async function fetchHeros() {
       try {
-        const res = await fetch(`${API_BASE_URL}/heros`)
-        if (res.status !== 200) {
-          throw(new Error(`获取 maps 失败 ${res.status}`))
-
-        }
-        const data = await res.json()
-        console.log(data.data)
-        setHeros(data.data)
+        const {data: heros} = await supabase.from('hero').select("*")
+        setHeros(heros)
       } catch(err) {
         console.log(err)
       }
@@ -195,29 +203,12 @@ export default function Home() {
   useEffect(()=> {
     async function getLineups(queryParam) {
       console.log("get lineups of  ", queryParam)
-      const url = new URL(API_BASE_URL + '/lineups');
-      const searchParam = new URLSearchParams(queryParam);
-      url.search = searchParam.toString();
-      console.log(url)
-
-      try {
-          const response = await fetch(url)
-          const resp = await response.json();
-          if (resp.status === 400) {
-              throw(new Error("bad request:" + resp.body.json().error))
-
-          }
-          console.log("lineups get", resp.data);
-          if (resp.data) {
-            setLineups(resp.data);
-          }
-      } catch(err) {
-          console.log(err)
-      }
+      const {data: lineups} = await supabase.rpc("getlineupby", {map_name: queryParam.map, hero_name: queryParam.hero, skill_name: queryParam.skill})
+      setLineups(lineups);
     }
 
     getLineups({hero: chosenHero, map: chosenMap, skill: chosenSkill})
-  }, [chosenHero, chosenMap, chosenSkill])
+  }, [chosenHero, chosenMap, chosenSkill, loading])
 
   let handleCanvasClick;
 
@@ -297,7 +288,8 @@ export default function Home() {
         })
 
         if (clickedLineup) {
-          router.push(`/lineups/${clickedLineup._id}`);
+          console.log("clicked id", clickedLineup.id)
+          router.push(`/lineups/${clickedLineup.id}`);
         }
       }
       clearAll(canvas)
@@ -406,10 +398,64 @@ export default function Home() {
           key: descs[index].key,
           text: descs[index].text,
           image: url,
+          file: file
         }
       ])
     }
 
+  }
+
+  function finishSubmit() {
+    setDescs([])
+    setDescIndex(0)
+    setState(PAGE_SHOW)
+    setStartPoint(null)
+    setEndpoint(null)
+  }
+
+  async function submit() {
+    if (state !== PAGE_ADD_2 || descs.length === 0) {
+      alert("lineup 未添加完！")
+      return
+    }
+
+    let form = new FormData();
+    const fileInputGroups = document.querySelectorAll('#descs .input-group');
+    form.append("start", startPoint.x)
+    form.append("start", startPoint.y)
+    form.append("end", endPoint.x)
+    form.append("end", endPoint.y)
+    form.append('hero_id', chosenHeroItem.id)
+    form.append('map_id', chosenMapItem.id)
+    form.append('skill', chosenSkill)
+    descs.forEach(desc => {
+      if (!desc.file) {
+        alert("存在图片未添加！")
+        return
+      }
+      form.append("texts", desc.text)
+      form.append("images", desc.file)
+    })
+
+    setLoading(true)
+    try {
+      const resp = await fetch('/api/lineups', {
+          method: "POST",
+          body: form,
+      })
+
+      if (!resp.ok) {
+        throw new Error(resp.statusText)
+      }
+
+      alert("提交成功!")
+      finishSubmit()
+    } catch(err) {
+      alert(`提交失败:${err}`)
+      return
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -434,6 +480,7 @@ export default function Home() {
                         label: map.name
                       }
                     })}
+                    disabled={loading}
                   />
                 </div>
                 <div className="mt-8 w-2/3">
@@ -457,6 +504,7 @@ export default function Home() {
                         label: hero.name
                       }
                     })}
+                    disabled={loading}
                   />
                 </div>
                 <div className="mt-8 w-2/3">
@@ -477,11 +525,12 @@ export default function Home() {
                         label: skill
                       }
                     })}
+                    disabled={loading}
                   />
                 </div>
             </div>
-            <div className="md:flex flex-col items-center m-8 overflow-scroll hidden">
-              <Button size="large" hidden={state!==PAGE_SHOW} className="mt-8" onClick={() => {
+            <div className="md:flex flex-col items-center m-8 overflow-auto hidden">
+              <Button size="large" hidden={state!==PAGE_SHOW || !user} className="mt-8" onClick={() => {
                 setState(PAGE_ADD_0);
               }}>添加 lineup</Button>
               <p hidden={state!==PAGE_ADD_0}>点击图片添加 lineup 起点</p>
@@ -491,7 +540,17 @@ export default function Home() {
                   descs.map(desc=> {
                   return (
                     <div key={desc.key} className="flex flex-col items-center mt-4 border border-[#66ccff] rounded-lg p-4"> 
-                      <Input  type="text" placeholder="添加描述文字" className="m-4"></Input>
+                      <Input  type="text" placeholder="添加描述文字" className="m-4" value={desc.text} onChange={(e) => {
+                        console.log("文本修改: ", e.target.value)
+                        setDescs(descs.map(d=> {
+                          if (d.key === desc.key) {
+                            return {
+                              ...d,
+                              text: e.target.value,
+                            }
+                          } else return d
+                        }))
+                      }}></Input>
                       <img src={desc.image} alt="粘贴以上传图片" className="w-[80%] m-4"/>
                       <DeleteOutlined onClick={()=> {
                         setDescs(descs.filter(item => item.key !== desc.key))
@@ -502,16 +561,12 @@ export default function Home() {
               
 
               </div>
-              <Button hidden={state === PAGE_SHOW} size="large" className="mt-8" onClick={addDesc}>添加图片及描述</Button>
+              <Button hidden={state === PAGE_SHOW} size="large" className="mt-8" onClick={addDesc} disabled={loading}>添加图片及描述</Button>
               <div hidden={state === PAGE_SHOW} className="flex flex-row flex-wrap">
-                <Button size="large" className="m-4">提交</Button>
-                <Button size="large" className="m-4" onClick={()=>{
-                  setDescs([])
-                  setDescIndex(0)
-                  setState(PAGE_SHOW)
-                  setStartPoint(null)
-                  setEndpoint(null)
-                }}>取消</Button>
+                <Button size="large" className="m-4" onClick={submit} disabled={loading}>
+                  { loading? "上传中" : "提交"}
+                </Button>
+                <Button size="large" className="m-4" onClick={finishSubmit} disabled={loading}>取消</Button>
               </div>
             </div>
         </div>

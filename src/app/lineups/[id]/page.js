@@ -1,21 +1,14 @@
 'use client'
+import { createClient } from "@/lib/client"
 import Image from "next/image"
 import { use, useEffect, useState } from "react"
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL
 
+
+const supabase = createClient()
 async function getLineupDetail(id) {
-    console.log(id)
-    try {
-        console.log(`${API_BASE_URL}/lineups/${id}`)
-        const res = await fetch(`${API_BASE_URL}/lineups/${id}`)
-        if (res.status !== 200) {
-            throw(new Error("获取 Lineup 失败"))
-        }
-        return res.json()
-    } catch(err) {
-        console.log(err)
-        return
-    }
+    const {data: lineup} = await supabase.from("lineup").select("*").eq("id", id)
+    return lineup[0]
 }
 
 export default function LineUp({
@@ -26,7 +19,8 @@ export default function LineUp({
 
     useEffect(() => {
         const setFunc = async function () {
-            const lineup = (await getLineupDetail(id))?.lineup
+            const lineup = await getLineupDetail(id)
+            console.log(lineup)
             if (lineup) {
                 setDescs(lineup.descs)
             }
@@ -43,7 +37,7 @@ export default function LineUp({
                 descs.map((desc, index) => 
                 <div key={index} className="flex flex-col items-center">
                     <p className="text-center text-2xl m-4">{desc.text}</p>
-                    <img className="w-3/4" src={`data:image/png;base64,${desc.image}`}></img>
+                    <img className="w-3/4" src={`${desc.url}`}></img>
                 </div>)
             }
         </div> 
